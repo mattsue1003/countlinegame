@@ -1178,10 +1178,12 @@ function p_blocks(showSolution){
     const r=Math.floor(i/cols), c=i%cols;
     const x=offsetX + c*(cellW+colGap);
     const y=r*(cellH+rowGap);
-    const svg=slitherSVG({R:p.R,C:p.C,clue:p.clue,gap,showSolution: showSolution?{solH:p.solH,solV:p.solV}:null});
-    h+='<div style="position:absolute; left:'+x+'px; top:'+y+'px; width:'+cellW+'px; text-align:center">'+
-       '<div style="font-size:14px; font-weight:800; height:'+titleH+'px; line-height:'+titleH+'px; color:'+(showSolution?'#c25a10':'#4e7c3f')+'; letter-spacing:.04em">第 '+p.label+' 題</div>'+
-       '<div class="sl-wrap" style="display:inline-block">'+svg+'</div></div>';
+    let svg=slitherSVG({R:p.R,C:p.C,clue:p.clue,gap,showSolution: showSolution?{solH:p.solH,solV:p.solV}:null});
+    // 鎖死 SVG 的明確 px 尺寸（避免 html2canvas 在手機環境縮放 SVG 造成跑位）
+    svg=svg.replace('<svg ', '<svg style="display:block;width:'+svgW+'px;height:'+svgH+'px" ');
+    h+='<div style="position:absolute; left:'+x+'px; top:'+y+'px; width:'+cellW+'px; height:'+cellH+'px">'+
+       '<div style="font-size:14px; font-weight:800; height:'+titleH+'px; line-height:'+titleH+'px; color:'+(showSolution?'#c25a10':'#4e7c3f')+'; letter-spacing:.04em; text-align:center">第 '+p.label+' 題</div>'+
+       '<div class="sl-wrap" style="width:'+svgW+'px; height:'+svgH+'px; margin:0 auto">'+svg+'</div></div>';
   });
   h+='</div>';
   return h;
