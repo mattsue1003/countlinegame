@@ -593,7 +593,7 @@ input[type=text]{width:100%; font-size:16px; padding:10px 12px; border:1px solid
     </div>
   </div>
 </div>
-<div id="p_render" style="position:fixed; left:-99999px; top:0"></div>
+<div id="p_render" style="position:fixed; left:-99999px; top:0; width:794px; box-sizing:border-box; overflow:hidden"></div>
 
 <script>
 // ===================== 共用核心邏輯 =====================
@@ -1212,16 +1212,26 @@ async function p_pdf(){
   const status=document.getElementById('p_status'); status.textContent='PDF 產生中…';
   const {jsPDF}=window.jspdf; const pdf=new jsPDF('p','mm','a4');
   const render=document.getElementById('p_render');
+  // 鎖死擷取容器為 A4 桌面尺寸，避免手機窄視窗造成版面錯位
+  render.style.width='794px';
+  render.style.height='1123px';
   const sheets=[p_puzzlePage(),p_answerPage()];
   for(let i=0;i<sheets.length;i++){
     render.innerHTML=sheets[i];
     const node=render.querySelector('.a4');
-    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff'});
+    // 明確指定尺寸與 window 尺寸，強制 html2canvas 以 794×1123 桌面環境算版面
+    const canvas=await html2canvas(node,{
+      scale:2, backgroundColor:'#ffffff',
+      width:794, height:1123,
+      windowWidth:794, windowHeight:1123,
+      scrollX:0, scrollY:0
+    });
     const img=canvas.toDataURL('image/jpeg',0.92);
     if(i>0) pdf.addPage();
     pdf.addImage(img,'JPEG',0,0,210,297);
   }
   render.innerHTML='';
+  render.style.width=''; render.style.height='';
   pdf.save('數圈推理桌遊_'+P.seed+'.pdf');
   status.textContent='已下載 PDF';
 }
