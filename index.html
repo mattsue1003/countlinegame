@@ -1159,16 +1159,31 @@ function p_blocks(showSolution){
   const gap=p_gap(cnt,N);
   const cols=cnt===1?1:2;
   const gridRows=cnt===1?1:(cnt===2?1:2);
-  const minH=gridRows===2?740:480;
-  let h='<div style="display:flex;align-items:center;justify-content:center;min-height:'+minH+'px">'+
-        '<div style="display:grid;grid-template-columns:repeat('+cols+',auto);gap:16px 16px;justify-items:center;align-items:start">';
-  puzzles.forEach(p=>{
+  // 盤面 SVG 實際尺寸
+  const m=Math.round(gap*0.55);
+  const svgW=m*2+N*gap, svgH=m*2+N*gap;
+  const titleH=26;        // 「第 N 題」標題高度
+  const cellW=svgW, cellH=svgH+titleH;   // 每個盤面格（含標題）
+  const colGap=24, rowGap=20;
+  // 整個區塊置中所需的內距
+  const totalW=cols*cellW + (cols-1)*colGap;
+  const areaW=742;                       // A4 內容可用寬
+  const offsetX=Math.max(0, Math.round((areaW-totalW)/2));
+  // 區塊總高度（固定，不靠 flex）
+  const totalRows=gridRows;
+  const blockH=totalRows*cellH + (totalRows-1)*rowGap;
+  // 容器：相對定位，固定高度；盤面絕對定位
+  let h='<div style="position:relative; width:'+areaW+'px; height:'+blockH+'px; margin:0 auto">';
+  puzzles.forEach((p,i)=>{
+    const r=Math.floor(i/cols), c=i%cols;
+    const x=offsetX + c*(cellW+colGap);
+    const y=r*(cellH+rowGap);
     const svg=slitherSVG({R:p.R,C:p.C,clue:p.clue,gap,showSolution: showSolution?{solH:p.solH,solV:p.solV}:null});
-    h+='<div style="text-align:center">'+
-       '<div style="font-size:14px;font-weight:800;color:'+(showSolution?'#c25a10':'#4e7c3f')+';margin-bottom:7px;letter-spacing:.04em">第 '+p.label+' 題</div>'+
-       '<div class="sl-wrap">'+svg+'</div></div>';
+    h+='<div style="position:absolute; left:'+x+'px; top:'+y+'px; width:'+cellW+'px; text-align:center">'+
+       '<div style="font-size:14px; font-weight:800; height:'+titleH+'px; line-height:'+titleH+'px; color:'+(showSolution?'#c25a10':'#4e7c3f')+'; letter-spacing:.04em">第 '+p.label+' 題</div>'+
+       '<div class="sl-wrap" style="display:inline-block">'+svg+'</div></div>';
   });
-  h+='</div></div>';
+  h+='</div>';
   return h;
 }
 
