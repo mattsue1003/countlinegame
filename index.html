@@ -1224,33 +1224,167 @@ function p_scale(){
     if(a4){ a4.style.transform='scale('+scale+')'; frame.style.height=(1123*scale)+'px'; }
   });
 }
+// ===== 純 Canvas 繪製 PDF 頁面 =====
+// 不使用 html2canvas（其在手機與桌面的版面計算不一致，是 PDF 跑位的根源）。
+// 所有元素座標皆由程式直接計算繪製，任何裝置產出完全一致。
+const PAGE_W=794, PAGE_H=1123, PDF_SCALE=2;
+const FONT_STACK='"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+
+function p_roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+// 畫一個盤面（點陣＋數字＋可選解答迴圈）於 (x0,y0)，回傳尺寸
+function p_drawBoard(ctx,x0,y0,pz,gap,showSolution){
+  const N=pz.R;
+  const m=Math.round(gap*0.55);
+  const W=m*2+N*gap;
+  const px=c=>x0+m+c*gap, py=r=>y0+m+r*gap;
+  ctx.fillStyle='#fffdf8'; ctx.fillRect(x0,y0,W,W);
+  // 數字
+  ctx.fillStyle='#3a342c';
+  ctx.font='700 '+Math.round(gap*0.46)+'px '+FONT_STACK;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const v=pz.clue[r][c]; if(v==null)continue;
+    ctx.fillText(String(v), px(c)+gap/2, py(r)+gap/2);
+  }
+  // 解答迴圈
+  if(showSolution){
+    ctx.strokeStyle='#c25a10'; ctx.lineWidth=Math.max(2.6,gap*0.075); ctx.lineCap='round';
+    ctx.beginPath();
+    for(let r=0;r<=N;r++)for(let c=0;c<N;c++) if(pz.solH[r][c]){ ctx.moveTo(px(c),py(r)); ctx.lineTo(px(c+1),py(r)); }
+    for(let r=0;r<N;r++)for(let c=0;c<=N;c++) if(pz.solV[r][c]){ ctx.moveTo(px(c),py(r)); ctx.lineTo(px(c),py(r+1)); }
+    ctx.stroke();
+  }
+  // 點陣（最上層）
+  ctx.fillStyle='#7d8470';
+  const dr=Math.max(2.2,gap*0.06);
+  for(let r=0;r<=N;r++)for(let c=0;c<=N;c++){ ctx.beginPath(); ctx.arc(px(c),py(r),dr,0,Math.PI*2); ctx.fill(); }
+  return W;
+}
+
+// 逐字換行繪製混合粗細/顏色的文字段，回傳最後一行的 y
+function p_wrapText(ctx,segs,x,y,maxW,fs,lh){
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  let cx=x, cy=y;
+  segs.forEach(s=>{
+    ctx.font=(s.b?'700 ':'400 ')+fs+'px '+FONT_STACK;
+    ctx.fillStyle=s.col||'#2a2620';
+    for(const ch of s.t){
+      const w=ctx.measureText(ch).width;
+      if(cx+w>x+maxW){ cx=x; cy+=lh; }
+      ctx.fillText(ch,cx,cy);
+      cx+=w;
+    }
+  });
+  return cy;
+}
+// 預量測段落需要幾行
+function p_measureRows(segs,maxW,fs){
+  const tmp=document.createElement('canvas').getContext('2d');
+  let cx=0, rows=1;
+  segs.forEach(s=>{
+    tmp.font=(s.b?'700 ':'400 ')+fs+'px '+FONT_STACK;
+    for(const ch of s.t){ const w=tmp.measureText(ch).width; if(cx+w>maxW){cx=0;rows++;} cx+=w; }
+  });
+  return rows;
+}
+
+// 繪製完整 A4 頁面（題目頁或解答頁）為 canvas
+function p_pageCanvas(showSolution){
+  const cv=document.createElement('canvas');
+  cv.width=PAGE_W*PDF_SCALE; cv.height=PAGE_H*PDF_SCALE;
+  const ctx=cv.getContext('2d');
+  ctx.scale(PDF_SCALE,PDF_SCALE);
+  // 白底（JPEG 不可有透明）
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,PAGE_W,PAGE_H);
+  const PAD_X=26, PAD_T=42, areaW=PAGE_W-PAD_X*2;
+  const {N,seed,cnt,rem,puzzles}=P;
+  // ── 頁首 ──
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillStyle='#2a2620';
+  ctx.font='800 24px '+FONT_STACK;
+  ctx.fillText(showSolution?'數圈推理桌遊　—　解答':'數圈推理桌遊（Slitherlink）', PAD_X, PAD_T);
+  ctx.font='400 13px '+FONT_STACK;
+  ctx.fillStyle='#6a6256';
+  ctx.fillText(showSolution? (N+'×'+N+'　種子：'+seed)
+    : (N+'×'+N+'　共 '+cnt+' 題　難度：'+remName(rem)+'　種子：'+seed), PAD_X, PAD_T+32);
+  ctx.fillStyle='#2a2620';
+  ctx.fillRect(PAD_X, PAD_T+54, areaW, 3);
+  // ── 規則框 ──
+  const O='#a8521f';
+  const lines= showSolution? [
+    [ {t:'解答：',b:1,col:O},{t:'下圖橘色線即為唯一解的單一封閉迴圈。可檢查：每個數字格四周的線數與數字相符，且整條線首尾相連、不分岔不交叉。'} ],
+  ]:[
+    [ {t:'遊戲目標：',b:1,col:O},{t:'在點與點之間畫線，連成'},{t:'一個封閉的迴圈',b:1,col:O},{t:'（單一圈、不分岔、不交叉、無斷點）。'} ],
+    [ {t:'數字規則：',b:1,col:O},{t:'每個格子裡的數字，代表它'},{t:'四周被畫上線的邊數',b:1,col:O},{t:'（0＝四邊都沒有線；3＝四邊有三條線）。空白格子沒有限制。'} ],
+    [ {t:'玩法：',b:1,col:O},{t:'用'},{t:'鉛筆或原子筆',b:1,col:O},{t:'沿著點與點'},{t:'畫線段',b:1,col:O},{t:'作答；判斷「一定沒有線」的地方可先打叉註記。先從 0 與 3 的格子下手最容易。全部完成後再翻到解答頁對答案。'} ],
+  ];
+  const boxY=PAD_T+72, boxPad=14, fs=12.5, lh=22;
+  const innerW=areaW-boxPad*2;
+  let totalRows=0; lines.forEach(segs=>{ totalRows+=p_measureRows(segs,innerW,fs); });
+  const boxH=boxPad*2+totalRows*lh-6;
+  p_roundRect(ctx,PAD_X,boxY,areaW,boxH,10);
+  ctx.fillStyle='#fbf2e6'; ctx.fill();
+  ctx.strokeStyle='#d8b48f'; ctx.lineWidth=1.5;
+  p_roundRect(ctx,PAD_X,boxY,areaW,boxH,10); ctx.stroke();
+  let ty=boxY+boxPad;
+  lines.forEach(segs=>{ ty=p_wrapText(ctx,segs,PAD_X+boxPad,ty,innerW,fs,lh)+lh; });
+  // ── 盤面群組（座標純計算）──
+  const gap=p_gap(cnt,N);
+  const m=Math.round(gap*0.55);
+  const boardW=m*2+N*gap;
+  const titleH=26;
+  const cellW=boardW, cellH=boardW+titleH;
+  const cols=cnt===1?1:2, rows=cnt===1?1:(cnt===2?1:2);
+  const colGap=24, rowGap=20;
+  const totalW=cols*cellW+(cols-1)*colGap;
+  const offX=PAD_X+Math.max(0,Math.round((areaW-totalW)/2));
+  const blockH=rows*cellH+(rows-1)*rowGap;
+  const footY=PAGE_H-60;
+  const availTop=boxY+boxH+12, availBottom=footY-14;
+  const startY=availTop+Math.max(0,Math.round((availBottom-availTop-blockH)/2));
+  puzzles.forEach((pz,i)=>{
+    const r=Math.floor(i/cols), c=i%cols;
+    const x=offX+c*(cellW+colGap), y=startY+r*(cellH+rowGap);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='800 14px '+FONT_STACK;
+    ctx.fillStyle= showSolution?'#c25a10':'#4e7c3f';
+    ctx.fillText('第 '+pz.label+' 題', x+cellW/2, y+titleH/2);
+    p_drawBoard(ctx,x,y+titleH,pz,gap,showSolution);
+  });
+  // ── 頁尾 ──
+  ctx.strokeStyle='#e0d6c4'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(PAD_X,footY); ctx.lineTo(PAGE_W-PAD_X,footY); ctx.stroke();
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.font='400 11.5px '+FONT_STACK; ctx.fillStyle='#857c6d';
+  ctx.fillText('設計者：愛迪樂　鍾孟修　職能治療師', PAGE_W/2, footY+9);
+  return cv;
+}
+
 async function p_pdf(){
   if(!P) p_generate();
   const status=document.getElementById('p_status'); status.textContent='PDF 產生中…';
-  const {jsPDF}=window.jspdf; const pdf=new jsPDF('p','mm','a4');
-  const render=document.getElementById('p_render');
-  // 鎖死擷取容器為 A4 桌面尺寸，避免手機窄視窗造成版面錯位
-  render.style.width='794px';
-  render.style.height='1123px';
-  const sheets=[p_puzzlePage(),p_answerPage()];
-  for(let i=0;i<sheets.length;i++){
-    render.innerHTML=sheets[i];
-    const node=render.querySelector('.a4');
-    // 明確指定尺寸與 window 尺寸，強制 html2canvas 以 794×1123 桌面環境算版面
-    const canvas=await html2canvas(node,{
-      scale:2, backgroundColor:'#ffffff',
-      width:794, height:1123,
-      windowWidth:794, windowHeight:1123,
-      scrollX:0, scrollY:0
+  try{
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF('p','mm','a4');
+    const pages=[p_pageCanvas(false), p_pageCanvas(true)];
+    pages.forEach((cv,i)=>{
+      if(i>0) pdf.addPage();
+      pdf.addImage(cv.toDataURL('image/jpeg',0.92),'JPEG',0,0,210,297);
     });
-    const img=canvas.toDataURL('image/jpeg',0.92);
-    if(i>0) pdf.addPage();
-    pdf.addImage(img,'JPEG',0,0,210,297);
+    pdf.save('數圈推理桌遊_'+P.seed+'.pdf');
+    status.textContent='已下載 PDF';
+  }catch(e){
+    status.textContent='PDF 失敗：'+e.message;
   }
-  render.innerHTML='';
-  render.style.width=''; render.style.height='';
-  pdf.save('數圈推理桌遊_'+P.seed+'.pdf');
-  status.textContent='已下載 PDF';
 }
 
 // ===================== 綁定與分頁 =====================
